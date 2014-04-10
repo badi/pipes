@@ -90,9 +90,8 @@ def stdinLn():
             break
 
 @producer
-def range10():
-    for i in xrange(10):
-        print 'range10', i
+def prange():
+    for i in xrange(10000):
         yield i
 
 @pipe
@@ -105,6 +104,14 @@ def duplicate(x):
 def putStrLn(x):
     ":: Consumer ()"
     print 'putStrLn', x
+    yield Unit()
+
+COUNT = 0
+
+@consumer
+def count(x):
+    global COUNT
+    COUNT += 1
     yield Unit()
 
 def connect(prod, pipes, cons):
@@ -129,9 +136,10 @@ def run(*args):
 
 
 def test():
-    run(range10,
-        [duplicate],
-        putStrLn)
+    run(prange,
+        [],
+        count)
+    print COUNT
 
 
 if __name__ == '__main__':
