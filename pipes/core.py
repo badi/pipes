@@ -2,7 +2,7 @@ from collections import deque
 
 class Unit: pass
 
-class Proxy(object):
+class State(object):
     def __init__(self):
         self._u = deque()
         self._d = deque()
@@ -29,7 +29,7 @@ class Proxy(object):
 class producer(object):
     def __init__(self, fn):
         self._fn = fn
-        self.proxy = None
+        self.state = None
         self._stream = None
 
     def set_stream(self, gen):
@@ -37,7 +37,7 @@ class producer(object):
 
     def __call__(self):
         for val in self._fn():
-            self.proxy.push_down(val)
+            self.state.push_down(val)
             yield Unit()
 
     def __str__(self):
@@ -46,7 +46,7 @@ class producer(object):
 class pipe(object):
     def __init__(self, fn):
         self._fn = fn
-        self.proxy = None
+        self.state = None
         self._stream = None
 
     def set_stream(self, gen):
@@ -54,15 +54,15 @@ class pipe(object):
 
     def __call__(self):
         for _ in self._stream():
-            val = self.proxy.pop_down()
+            val = self.state.pop_down()
             for res in self._fn(val):
-                self.proxy.push_down(res)
+                self.state.push_down(res)
                 yield Unit()
 
 class consumer(object):
     def __init__(self, fn):
         self._fn = fn
-        self.proxy = None
+        self.state = None
         self._stream = None
 
     def set_stream(self, gen):
@@ -70,60 +70,48 @@ class consumer(object):
 
     def __call__(self):
         for _ in self._stream():
-            val = self.proxy.pop_down()
+            val = self.state.pop_down()
             for result in self._fn(val):
                 yield result
 
     def __str__(self):
         return '<consumer %s>' % self._fn.__name__
-        
 
-@producer
-def stdinLn():
-    ":: Producer String"
-    import sys
-    while True:
-        line = sys.stdin.readline()
-        if line:
-            print line.strip()
-        else:
-            break
 
-@producer
-def prange():
-    for i in xrange(10000):
-        yield i
+class Proxy(object):
+    __wrap__ = lambda x: x
+    def __init__(self, constructor):
+        self._constructor = constructor
 
-@pipe
-def duplicate(x):
-    print 'duplicate', x
-    yield x
-    yield x
+    def __call__(self, *args, **kws):
+        obj = self._constructor(*args, **kws)
+        wrapped = self.__wrap__(obj)
+        return wrapped
 
-@consumer
-def putStrLn(x):
-    ":: Consumer ()"
-    print 'putStrLn', x
-    yield Unit()
+class Producer(Proxy):
+    __wrap__ = producer
 
-COUNT = 0
+class Pipe(Proxy):
+    __wrap__ = pipe
 
-@consumer
-def count(x):
-    global COUNT
-    COUNT += 1
-    yield Unit()
+class Consumer(Proxy):
+    __wrap__ = consumer
+
+
 
 def connect(prod, pipes, cons):
-    p = Proxy()
+    """
+    :: producer -> [pipe] -> consumer -> generator
+    """
+    s = State()
     prev = prod
-    prev.proxy = p
+    prev.state = s
     for curr in pipes:
-        curr.proxy = p
+        curr.state = s
         curr.set_stream(prev)
         prev = curr
     cons.set_stream(prev)
-    cons.proxy = p
+    cons.state = s
 
     for result in cons():
         if type(result) is Unit: continue
@@ -133,37 +121,3 @@ def run(*args):
     ":: Producer -> Pipe -> ... -> Consumer"
     for result in connect(*args):
         pass
-
-
-def test():
-    run(prange,
-        [],
-        count)
-    print COUNT
-
-
-if __name__ == '__main__':
-    test()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
